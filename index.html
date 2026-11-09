@@ -1,20 +1,20 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f1f2f6"><title>CA Sketchup</title><meta name="description" content="Create a 3D terrain model from Mindanao coordinates and export it to SketchUp."><link rel="icon" href="./ca-cube.svg"><link rel="stylesheet" href="./studio.css"><link rel="stylesheet" href="./sketchup.css"></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f1f2f6"><title>YCS Sketchup</title><meta name="description" content="Create a 3D terrain model from Mindanao coordinates and export it to SketchUp."><link rel="icon" href="./ycs-cube.svg"><link rel="stylesheet" href="./studio.css"><link rel="stylesheet" href="./sketchup.css"></head>
 <body>
 <div id="homeScreen" class="homeShell">
 <nav class="homeRail" aria-label="Main navigation">
-<a class="homeBrand" href="#home"><img src="./ca-cube.svg" alt=""><span>CA Sketchup</span></a>
+<a class="homeBrand" href="#home"><img src="./ycs-cube.svg" alt=""><span>YCS Sketchup</span></a>
 <a class="homeNav current" href="#home" aria-current="page"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m2 11 10-9 10 9-2 2-1-1v9h-6v-6h-3v6H5v-9l-1 1z"/></svg>Home</a>
-<a class="homeNav" href="#workspace"><img src="./ca-cube.svg" alt="">Terrain workspace</a>
+<a class="homeNav" href="#workspace"><img src="./ycs-cube.svg" alt="">Terrain workspace</a>
 <button class="homeNav railAbout" id="homeAbout"><span aria-hidden="true">ⓘ</span>About</button>
 </nav>
 <section class="homeBody" aria-label="Home"><div class="homeHead"><h1>Home</h1>
 <div class="homeActions"><button id="newModel">Create new</button><div class="sampleMenu"><button id="showSamples" aria-expanded="false" aria-controls="homeSamples">Sample sites <span aria-hidden="true">⌄</span></button><div id="homeSamples" hidden></div></div></div></div>
-<div class="welcomeField"><article class="welcome"><img src="./ca-cube.svg" alt=""><h2>Welcome to CA Sketchup!</h2><button id="startModel">Start modeling</button></article></div>
+<div class="welcomeField"><article class="welcome"><img src="./ycs-cube.svg" alt=""><h2>Welcome to YCS Sketchup!</h2><button id="startModel">Start modeling</button></article></div>
 </section></div>
-<dialog id="homeDialog"><div class="dialogHead"><img src="./ca-cube.svg" alt="" width="30"><button id="closeHomeAbout" class="close" aria-label="Close about">×</button></div><h2>CA Sketchup</h2><p>Generate 3D terrain for Mindanao using coordinates from Google Earth, then export the surface as a SketchUp model.</p></dialog>
+<dialog id="homeDialog"><div class="dialogHead"><img src="./ycs-cube.svg" alt="" width="30"><button id="closeHomeAbout" class="close" aria-label="Close about">×</button></div><h2>YCS Sketchup</h2><p>Generate 3D terrain for Mindanao using coordinates from Google Earth, then export the surface as a SketchUp model.</p></dialog>
 <div id="modelScreen" hidden>
-<header class="mast"><a class="brand" href="#home" aria-label="CA Sketchup home"><img src="./ca-cube.svg" alt="" width="32" height="35"><span>CA Sketchup</span></a><span class="mastSep"></span><a class="workspaceHome" href="#home">Home</a><span class="worklabel">Terrain workspace</span><button type="button" id="export" class="export" disabled><i data-icon="download"></i><span>Export model</span></button></header>
+<header class="mast"><a class="brand" href="#home" aria-label="YCS Sketchup home"><img src="./ycs-cube.svg" alt="" width="32" height="35"><span>YCS Sketchup</span></a><span class="mastSep"></span><a class="workspaceHome" href="#home">Home</a><span class="worklabel">Terrain workspace</span><button type="button" id="export" class="export" disabled><i data-icon="download"></i><span>Export model</span></button></header>
 <main>
 <aside>
 <div class="sectionHead"><span class="eyebrow">PROJECT INPUT</span></div>
@@ -22,6 +22,15 @@
 <form id="siteForm"><label for="coords">Site coordinates</label><textarea id="coords" rows="2" spellcheck="false" required>8°29'30.60"N 124°45'27.67"E</textarea><p class="hint">Paste latitude and longitude from Google Earth in decimal degrees or DMS.</p>
 <label for="extent">Site extent</label><div class="selectWrap"><select id="extent"><option value="500">500 m × 500 m</option><option value="1000">1 km × 1 km</option><option value="1500" selected>1.5 km × 1.5 km</option><option value="2500">2.5 km × 2.5 km</option><option value="5000">5 km × 5 km</option></select></div>
 <button type="submit" id="generate" class="generate"><i data-icon="mountain"></i><span>Generate terrain</span><b>→</b></button><p id="problem" role="alert" hidden></p></form>
+<section class="photoTools"><h2>Site photo</h2><p class="hint">Drape an aerial photo or a map screenshot over the terrain. Heights come from elevation data.</p>
+<label class="pickPhoto" for="photoFile"><span>Choose photo…</span><input id="photoFile" type="file" accept="image/jpeg,image/png,image/webp"></label>
+<small class="photoHelp">JPG, PNG or WebP · stays on this device</small>
+<p id="photoMessage" role="status"></p>
+<details id="alignment" hidden><summary>Align photo</summary>
+<div class="alignGrid"><label>Photo scale (%)<input id="scale" type="number" min="5" max="1000" value="100"></label><label>Rotation (° CW)<input id="rotation" type="number" min="-360" max="360" value="0"></label>
+<label>East offset (m)<input id="east" type="number" min="-10000" max="10000" value="0"></label><label>North offset (m)<input id="north" type="number" min="-10000" max="10000" value="0"></label></div>
+<label for="opacity">Opacity <output id="opacityVal">100%</output></label><input id="opacity" type="range" min="0" max="100" value="100">
+<div class="photoActions"><button id="resetPhoto" type="button">Reset alignment</button><button id="removePhoto" type="button">Remove photo</button></div></details></section>
 <div class="divider"></div><div class="sectionHead"><span class="eyebrow">MINDANAO</span><i data-icon="pin"></i></div><h2>Sample sites</h2><div class="sites" id="sites"></div>
 <div class="source"><i data-icon="layers"></i><div><b>Elevation source</b><span id="sourceName">Copernicus GLO-30</span><button id="about" class="textLink">Data &amp; accuracy ↗</button></div></div>
 </aside>
@@ -32,7 +41,7 @@
 <div class="compass" aria-label="North indicator"><b>N</b><svg viewBox="0 0 28 32" id="needle"><path d="m14 2 8 24-8-6z" fill="#285b49"/><path d="M14 2 6 26l8-6z" fill="#9bb5a4"/></svg></div>
 <div class="load" id="load" role="status">Loading terrain…</div><div id="probeInfo" hidden></div>
 <div class="stageBottom"><div class="legend"><span>Surface elevation</span><div class="ramp"></div><div><b id="lo">—</b><b id="hi">—</b></div></div><div class="zoom"><button id="minus" aria-label="Zoom out">−</button><span id="zoomVal">100%</span><button id="plus" aria-label="Zoom in">+</button></div></div></div>
-<div class="metrics"><div><span>PIN ELEVATION</span><strong id="pinValue">—</strong></div><div><span>VERTICAL RELIEF</span><strong id="relief">—</strong></div><div><span>MODEL AREA</span><strong id="area">—</strong></div><div class="styleBox"><label for="style">SURFACE STYLE</label><select id="style"><option value="elevation">Elevation tint</option><option value="clay">SketchUp clay</option><option value="wire">Mesh edges</option></select></div></div>
+<div id="layerBar" hidden><span id="layerStatus" role="status"></span> <a id="layerCredit" target="_blank" rel="noopener noreferrer" hidden></a><button id="retryLayer" type="button" hidden>Retry</button></div><div class="metrics"><div><span>PIN ELEVATION</span><strong id="pinValue">—</strong></div><div><span>VERTICAL RELIEF</span><strong id="relief">—</strong></div><div><span>MODEL AREA</span><strong id="area">—</strong></div><div class="styleBox"><label for="style">TERRAIN LAYER</label><select id="style"><option value="elevation">Elevation tint</option><option value="satellite">Satellite</option><option value="map">Street map</option><option id="photoOption" value="photo" disabled>Site photo</option><option value="clay">SketchUp clay</option><option value="wire">Mesh edges</option></select></div></div>
 </section></main>
 <footer><span><span class="dot"></span><b id="status">Opening workspace</b></span><span id="coordRead">WGS 84</span><span class="mouseHint">Drag to orbit · Shift + drag to pan · Scroll to zoom</span></footer></div>
 <dialog id="sourceDialog"><div class="dialogHead"><span class="eyebrow">MODEL REFERENCE</span><button class="close" aria-label="Close">×</button></div><h2>Data &amp; accuracy</h2><p id="dataDesc"></p><p>Heights can include trees and buildings. Use the model for site planning. Ground levels, boundaries and construction grades require field measurements.</p><p>Model axes run east, north and up in metres. The pin is the horizontal origin. The viewer and export use true vertical scale.</p><small id="credit"></small></dialog>

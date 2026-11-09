@@ -1,4 +1,5 @@
 import {loadTerrain} from './data/elevation.js';
+import {TerrainLayers} from './layers.js';
 import {Viewer} from './viewer.js';
 import {parseCoordinates} from './coordinates.js';
 import {exportSketchUp} from './export/sketchup.js';
@@ -8,12 +9,13 @@ for(const el of document.querySelectorAll('[data-icon]')){el.innerHTML='<svg vie
 const samples=[{name:'Puerto',area:'Cagayan de Oro',photo:'puerto',coords:'8°29\'30.60"N 124°45\'27.67"E',size:1500},{name:'Mantibugao',area:'Manolo Fortich',photo:'mantibugao',coords:'8°28\'18.16"N 124°49\'19.98"E',size:500},{name:'Calinan',area:'Davao City',photo:'calinan',coords:'7.213135, 125.426933',size:500}];
 const formatM=n=>Math.round(n).toLocaleString()+' m';
 let pending=null, model=null, exportName='',dirty=false, exporting=false;
-function controls(){ $('export').disabled=!model||!!pending||dirty||exporting; }
+function controls(){ $('export').disabled=!model||!!pending||dirty||exporting||!!layers?.busy; }
 const view=new Viewer($('canvas'),v=>{
  $('zoomVal').textContent=Math.round(v.zoom*100)+'%';
  $('needle').style.transform='rotate('+(Math.atan2(-Math.sin(v.yaw),Math.cos(v.yaw)*Math.sin(v.tilt))*180/Math.PI)+'deg)';
  const isPlan=v.tilt>1.569;$('plan').setAttribute('aria-pressed',isPlan);$('iso').setAttribute('aria-pressed',!isPlan);
 },p=>{const info=$('probeInfo');info.hidden=false;info.textContent=p?'Surface elevation · '+formatM(p[2]):'Click a point on the terrain surface.';});
+const layers=new TerrainLayers(view,controls);
 for(const [i,s] of samples.entries()){
  const b=document.createElement('button');b.type='button';b.className='site';b.dataset.index=i;b.innerHTML='<img alt="" class="siteThumb" src="./thumbs/'+s.photo+'.png"><span><strong>'+s.name+'</strong><small>'+s.area+'</small></span><em aria-hidden="true"></em>';b.onclick=()=>{$('coords').value=s.coords;$('extent').value=s.size;generate();};$('sites').append(b);
 }
@@ -28,7 +30,7 @@ async function generate(){
  try{
   const t=await loadTerrain({...location,extent,signal:controller.signal,onStatus:s=>{if(pending===controller)$('load').textContent=s;}});
   if(pending!==controller)return;
-  view.setModel(t);model=t;dirty=false;exportName=selected?.name||'Mindanao site';
+  view.setModel(t);layers.setModel(t);model=t;dirty=false;exportName=selected?.name||'Mindanao site';
   $('siteName').replaceChildren(document.createTextNode(exportName+' '));const sub=document.createElement('small');sub.textContent='/ '+(selected?.area||'Custom location');$('siteName').append(sub);
   for(const el of $('sites').children){const active=samples[+el.dataset.index]===selected;el.classList.toggle('active',active);el.setAttribute('aria-pressed',active);el.querySelector('em').textContent=active?'•':'↗';}
   $('dataDesc').textContent=t.source+' provides the elevations for this model. Nominal spacing is '+t.spacing+' m. Vertical reference: '+t.datum+'.';$('credit').textContent=t.attribution;
@@ -41,12 +43,11 @@ async function generate(){
 $('siteForm').onsubmit=e=>{e.preventDefault();generate();};
 $('iso').onclick=()=>view.fit();$('plan').onclick=()=>view.plan();$('fit').onclick=()=>view.fit();$('plus').onclick=()=>view.zoomBy(1.2);$('minus').onclick=()=>view.zoomBy(1/1.2);
 document.querySelectorAll('[data-tool]').forEach(el=>el.onclick=()=>{view.tool=el.dataset.tool;for(const b of document.querySelectorAll('[data-tool]'))b.setAttribute('aria-pressed',b===el);$('canvas').style.cursor=view.tool==='probe'?'crosshair':'grab';$('probeInfo').hidden=view.tool!=='probe';$('probeInfo').textContent='Click a point on the terrain surface.';});
-$('style').onchange=()=>{view.style=$('style').value;view.prepare();document.querySelector('.legend').style.visibility=view.style==='elevation'?'visible':'hidden';};
 $('about').onclick=()=>$('sourceDialog').showModal();$('sourceDialog').querySelector('.close').onclick=()=>$('sourceDialog').close();
 $('export').onclick=async()=>{
- if(!model||dirty||pending||exporting)return;
+ if(!model||dirty||pending||exporting||layers.busy)return;
  const t=model,name=exportName;exporting=true;controls();const label=$('export').querySelector('span');label.textContent='Exporting…';
- try{const blob=await exportSketchUp({...view.geometry,name:name+' terrain',latitude:t.lat,longitude:t.lon,source:t.source+' · '+t.spacing+' m · '+t.datum,attribution:t.attribution});
+ try{const geometry=view.geometry;const texture=await layers.exportTexture();const blob=await exportSketchUp({...geometry,texture,name:name+' terrain',latitude:t.lat,longitude:t.lon,source:t.source+' · '+t.spacing+' m · '+t.datum,attribution:t.attribution});
  const url=URL.createObjectURL(blob), a=document.createElement('a');a.href=url;a.download=name+' terrain.skp';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);if(model===t&&!dirty&&!pending)$('status').textContent='SketchUp file downloaded';}
  catch(e){report(e.message||'Could not create the SketchUp file.');}finally{exporting=false;label.textContent='Export model';controls();}
 };
@@ -66,7 +67,7 @@ function showRoute() {
  const editing = location.hash === '#workspace';
  homeScreen.hidden = editing;
  modelScreen.hidden = !editing;
- document.title = editing ? 'Terrain workspace | CA Sketchup' : 'CA Sketchup';
+ document.title = editing ? 'Terrain workspace | YCS Sketchup' : 'YCS Sketchup';
  closeSamples();
  if (editing && firstOpen) {
   firstOpen = false;
@@ -87,6 +88,7 @@ $('newModel').onclick = () => {
  $('coords').value = '';
  markDraft();
  model = null;
+ layers.reset();
  view.model = null;
  view.mesh = null;
  view.projected = null;

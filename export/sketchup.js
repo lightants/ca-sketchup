@@ -1,4 +1,6 @@
 // XYZ inputs use metres: +X east, +Y north, +Z up. Indices are CCW triangles.
+// Optional texture: {bytes, mimeType, uvs?, name?, attribution?}. UVs use top-left origin.
+// Omit UVs for an image covering the XY bounds, north up.
 // Optional name, latitude, longitude, source and attribution go into SKP group metadata.
 async function encodeOnPage(model) {
   const { encodeTerrain } = await import('./encode.js');

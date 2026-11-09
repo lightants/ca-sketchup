@@ -2,14 +2,46 @@ import { create } from './openskp-writer.js';
 
 const inchesPerMetre = 1 / 0.0254;
 
-export function encodeTerrain({ positions, indices, name, latitude, longitude, source, attribution }) {
+function surfaceStyle(builder, texture, points, minimum, maximum) {
+  if (!texture) {
+    const material = builder.addMaterial('Terrain surface', [155, 179, 140]);
+    const options = { material, backMaterial: material, smoothEdges: true, softEdges: true };
+    return () => options;
+  }
+
+  const { bytes, mimeType, uvs, name = 'Site imagery' } = texture;
+  const image = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || 0);
+  if (image.length < 8 || !['image/jpeg', 'image/png'].includes(mimeType)) {
+    throw new Error('The SketchUp overlay needs a PNG or JPEG image.');
+  }
+  if (uvs && uvs.length !== points.length * 2) {
+    throw new Error('The SketchUp overlay has a different vertex count than the terrain.');
+  }
+  const material = builder.addTextureMaterial(name, image, mimeType === 'image/png' ? 'site.png' : 'site.jpg');
+  const options = { material, backMaterial: material, smoothEdges: true, softEdges: true };
+  const width = maximum[0] - minimum[0];
+  const height = maximum[1] - minimum[1];
+  const pins = points.map((point, vertex) => {
+    // Browser imagery runs from the top-left; SketchUp's V axis starts at the bottom.
+    const u = uvs ? uvs[2 * vertex] : (point[0] - minimum[0]) / width;
+    const v = uvs ? 1 - uvs[2 * vertex + 1] : (point[1] - minimum[1]) / height;
+    if (!Number.isFinite(u) || !Number.isFinite(v)) {
+      throw new Error('The SketchUp overlay has invalid image coordinates.');
+    }
+    return [point, [u, v]];
+  });
+  return (a, b, c) => {
+    const uv = [pins[a], pins[b], pins[c]];
+    return { ...options, frontUv: uv, backUv: uv };
+  };
+}
+
+export function encodeTerrain({ positions, indices, name, latitude, longitude, source, attribution, texture }) {
   if (!positions?.length || positions.length % 3 || !indices?.length || indices.length % 3) {
     throw new Error('The terrain mesh has no valid triangles.');
   }
 
   const builder = create();
-  const material = builder.addMaterial('Terrain surface', [155, 179, 140]);
-  const options = { material, backMaterial: material, smoothEdges: true, softEdges: true };
   const points = [];
   const minimum = [Infinity, Infinity, Infinity];
   const maximum = [-Infinity, -Infinity, -Infinity];
@@ -23,16 +55,18 @@ export function encodeTerrain({ positions, indices, name, latitude, longitude, s
     points.push(point);
   }
 
+  const getFaceStyle = surfaceStyle(builder, texture, points, minimum, maximum);
   const attributes = { 'Site': name || 'Mindanao terrain', 'Coordinates': 'Local east, north and height in metres' };
   if (Number.isFinite(latitude)) attributes.Latitude = latitude;
   if (Number.isFinite(longitude)) attributes.Longitude = longitude;
   if (source) attributes['Elevation source'] = source;
   if (attribution) attributes['Data credit'] = attribution;
+  if (texture?.attribution) attributes['Imagery credit'] = texture.attribution;
   builder.addGroup(group => {
     for (let i = 0; i < indices.length; i += 3) {
       const a = points[indices[i]], b = points[indices[i + 1]], c = points[indices[i + 2]];
       if (!a || !b || !c) throw new Error('Terrain has an invalid triangle.');
-      group.addFace([a, b, c], options);
+      group.addFace([a, b, c], getFaceStyle(indices[i], indices[i + 1], indices[i + 2]));
     }
   }, { name: name || 'Mindanao terrain', attributeDictName: 'Terrain Studio', attributes });
   const result = builder.toBytes();

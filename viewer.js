@@ -1,6 +1,45 @@
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const palette=[[86,124,113],[141,169,119],[201,194,141],[232,219,175]];
 function tint(t){const x=clamp(t,0,1)*2.999,i=Math.floor(x);return palette[i].map((v,k)=>v+(palette[i+1][k]-v)*(x-i));}
+
+// The texture covers the same north-up square as the DEM. Keeping the photo
+// placement here also gives SketchUp exports and the interactive view identical UVs.
+function makeOverlayTexture(image, extent, {scale=1, rotation=0, east=0, north=0, opacity=1}) {
+ const width=image.naturalWidth || image.width, height=image.naturalHeight || image.height;
+ if (!(width>0 && height>0)) throw new Error('The image has no readable dimensions.');
+ const size=Math.min(2048,Math.max(512,width,height));
+ const canvas=document.createElement('canvas');
+ canvas.width=canvas.height=size;
+ const ctx=canvas.getContext('2d');
+ const fit=size/Math.max(width,height)*scale;
+ ctx.translate(size*(.5+east/extent), size*(.5-north/extent));
+ ctx.rotate(rotation*Math.PI/180);
+ ctx.globalAlpha=clamp(opacity,0,1);
+ ctx.drawImage(image,-width*fit/2,-height*fit/2,width*fit,height*fit);
+ return canvas;
+}
+
+// Orthographic projection makes the source-to-screen mapping affine on each
+// DEM triangle. Fill with a transformed pattern, which reuses the same texture
+// in the browser without copying image pixels to JavaScript on each frame.
+function drawOverlayFace(ctx, pattern, matrix, uv, points, a, b, c) {
+ const [u,v]=uv[a], du1=uv[b][0]-u, dv1=uv[b][1]-v;
+ const du2=uv[c][0]-u, dv2=uv[c][1]-v;
+ const [x,y]=points[a], dx1=points[b][0]-x, dy1=points[b][1]-y;
+ const dx2=points[c][0]-x, dy2=points[c][1]-y;
+ const det=du1*dv2-du2*dv1;
+ matrix.a=(dx1*dv2-dx2*dv1)/det;
+ matrix.b=(dy1*dv2-dy2*dv1)/det;
+ matrix.c=(dx2*du1-dx1*du2)/det;
+ matrix.d=(dy2*du1-dy1*du2)/det;
+ matrix.e=x-matrix.a*u-matrix.c*v;
+ matrix.f=y-matrix.b*u-matrix.d*v;
+ pattern.setTransform(matrix);
+ ctx.fillStyle=pattern;
+ ctx.fill();
+ ctx.strokeStyle=pattern;
+ ctx.stroke();
+}
 export function modelGeometry(t){
  const {rows,cols,extent,heights}=t, positions=new Float64Array(rows*cols*3), indices=new Uint32Array((rows-1)*(cols-1)*6);
  let n=0;
@@ -16,7 +55,51 @@ export class Viewer{
   this.fit(false);this.bind();new ResizeObserver(()=>this.drawSoon()).observe(canvas);
  }
  fit(notify=true){this.yaw=-.55;this.tilt=.64;this.zoom=1;this.dx=0;this.dy=0;this.probed=null;if(notify)this.drawSoon();}
- setModel(t){this.model=t;this.geometry=modelGeometry(t);this.fit();this.prepare();}
+ setModel(t){this.clearOverlay();this.model=t;this.geometry=modelGeometry(t);this.fit();this.prepare();}
+ setOverlay(image, options={}) {
+  if (!this.model) throw new Error('Generate terrain before adding an image.');
+  const texture=makeOverlayTexture(image,this.model.extent,options);
+  this.overlay={texture,matrix:new DOMMatrix()};
+  this.prepareOverlayUVs();
+  this.drawSoon();
+ }
+ clearOverlay(){this.overlay=null;if(this.mesh)this.mesh.textureBase=null;this.drawSoon();}
+ prepareOverlayUVs(){
+  if (!this.overlay || !this.mesh) return;
+  const {texture}=this.overlay, size=texture.width, extent=this.model.extent;
+  let base=this.mesh.textureBase;
+  if (!base || base.canvas.width!==size) {
+   const canvas=document.createElement('canvas');
+   canvas.width=canvas.height=size;
+   const ctx=canvas.getContext('2d');
+   const uv=this.mesh.verts.map(([x,y])=>[(.5+x/extent)*size,(.5-y/extent)*size]);
+   ctx.fillStyle='#a0b692';ctx.fillRect(0,0,size,size);
+   ctx.lineJoin='round';ctx.lineWidth=1;
+   for (const [a,b,c,color] of this.mesh.triangles) {
+    ctx.beginPath();ctx.moveTo(...uv[a]);ctx.lineTo(...uv[b]);ctx.lineTo(...uv[c]);ctx.closePath();
+    ctx.fillStyle=ctx.strokeStyle=color;ctx.fill();ctx.stroke();
+   }
+   base=this.mesh.textureBase={canvas,uv};
+  }
+  const surface=document.createElement('canvas');
+  surface.width=surface.height=size;
+  const ctx=surface.getContext('2d');
+  ctx.drawImage(base.canvas,0,0);
+  ctx.drawImage(texture,0,0);
+  this.overlay.surface=surface;
+  this.overlay.uv=base.uv;
+  this.overlay.pattern=this.ctx.createPattern(surface,'no-repeat');
+ }
+ getOverlayCanvas(){
+  if (!this.overlay) return null;
+  const canvas=document.createElement('canvas'), texture=this.overlay.texture;
+  canvas.width=canvas.height=texture.width;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#a0b692';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(texture,0,0);
+  return canvas;
+ }
  prepare(){
   if(!this.model)return;const t=this.model, {rows,cols,extent,heights,min,max}=t;
   // Limit on-screen mesh density during orbit. Downloads retain every sampled vertex.
@@ -36,7 +119,7 @@ export class Viewer{
   const add=(a,b,c)=>{const col=colors[a].map((v,k)=>Math.round((v+colors[b][k]+colors[c][k])/3));triangles.push([a,b,c,'rgb('+col.join(',')+')']);};
   for(let r=0;r<n-1;r++)for(let c=0;c<n-1;c++){const i=r*n+c;add(i,i+n+1,i+1);add(i,i+n,i+n+1);}
   for(let s=0;s<4;s++){const edge=Array.from({length:n},(_,i)=>[i,i*n+n-1,(n-1)*n+(n-1-i),(n-1-i)*n][s]);sides.push(edge);}
-  this.mesh={verts,triangles,sides};this.drawSoon();
+  this.mesh={verts,triangles,sides};this.prepareOverlayUVs();this.drawSoon();
  }
  project(x,y,z){
   const {co,si,ct,st,k,ox,oy}=this.cam;const lateral=x*co-y*si;const north=x*si+y*co;
@@ -61,8 +144,24 @@ export class Viewer{
    ctx.strokeStyle='#88967d';ctx.lineWidth=.7;ctx.stroke();
   }
   // An orthographic depth ordering also supports the software canvas on browsers without WebGL.
-  const ordered=triangles.slice().sort((a,b)=>(p[b[0]][2]+p[b[1]][2]+p[b[2]][2])-(p[a[0]][2]+p[a[1]][2]+p[a[2]][2]));
-  ctx.lineJoin='round';for(const [a,b,c,color] of ordered){path([p[a],p[b],p[c]],true);ctx.fillStyle=color;ctx.fill();ctx.lineWidth=this.style==='wire'?.65:.65;ctx.strokeStyle=this.style==='wire'?'#566b57':color;ctx.stroke();}
+  ctx.lineJoin='round';
+  const overlay=this.overlay, flatDrape=overlay && Math.abs(ct)<1e-8 && this.style!=='wire';
+  if(flatDrape){
+   const corner=this.project(-extent/2,extent/2,this.midZ), m=k*extent/overlay.texture.width;
+   ctx.save();
+   ctx.transform(m*co,-m*si,m*si,m*co,corner[0],corner[1]);
+   ctx.drawImage(overlay.surface,0,0);
+   ctx.restore();
+  } else {
+   const ordered=triangles.slice().sort((a,b)=>(p[b[0]][2]+p[b[1]][2]+p[b[2]][2])-(p[a[0]][2]+p[a[1]][2]+p[a[2]][2]));
+   ctx.lineWidth=.65;
+   for(const [a,b,c,color] of ordered){
+    path([p[a],p[b],p[c]],true);
+    if(overlay) drawOverlayFace(ctx,overlay.pattern,overlay.matrix,overlay.uv,p,a,b,c);
+    else {ctx.fillStyle=color;ctx.strokeStyle=color;ctx.fill();ctx.stroke();}
+    if(this.style==='wire'){ctx.strokeStyle='#566b57';ctx.stroke();}
+   }
+  }
   for(const edge of sides){path(edge.map(i=>p[i]));ctx.strokeStyle='#5f745e';ctx.lineWidth=.85;ctx.stroke();}
   const marker=this.project(0,0,this.model.pinElevation);
   ctx.beginPath();ctx.arc(marker[0],marker[1],4.7,0,2*Math.PI);ctx.fillStyle='#1b5039';ctx.fill();ctx.lineWidth=2;ctx.strokeStyle='#f5f7e8';ctx.stroke();

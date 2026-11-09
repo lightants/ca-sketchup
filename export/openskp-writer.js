@@ -143,10 +143,14 @@ function resolveMatrix3x3(matrix3x3, rotation) {
   if (rotation !== void 0) return rotationMatrix3x3(rotation.axis, rotation.angleRadians);
   return matrix3x3;
 }
-function faceUvBasis2(points, normal) {
-  const u = normalize3([points[1][0] - points[0][0], points[1][1] - points[0][1], points[1][2] - points[0][2]]);
-  const w = normalize3(cross(normal, u));
-  return [u, w];
+// Match the SketchUp face projection axes (OpenSKP model.ts faceUvBasis).
+// The writer's upstream first-edge basis rotates the image differently on each triangle.
+function faceUvBasis2(_points, normal) {
+  const [nx, ny, nz] = normal;
+  const horizontal = Math.hypot(nx, ny);
+  if (horizontal < 1e-9) return [[1, 0, 0], [0, nz >= 0 ? 1 : -1, 0]];
+  const xAxis = [-ny / horizontal, nx / horizontal, 0];
+  return [xAxis, cross(normal, xAxis)];
 }
 function circleBasis(normal) {
   const seed = Math.abs(normal[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
