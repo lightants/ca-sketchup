@@ -4,15 +4,9 @@ A browser-based terrain modeler for Mindanao, Philippines. Paste Google Earth co
 
 [Open YCS Sketchup](https://lightants.github.io/ca-sketchup/)
 
-## Generate a 3D parcel from Google Earth
-
-Open **Survey from Google Earth** in the workspace. Upload a screenshot to detect its yellow parcel outline and read the measurements displayed in the Earth panel. Check the outline or trace it manually. Screenshot processing runs on your device.
-
-For a tilted view, import the matching single-polygon KML/KMZ from Google Earth, or enter geographic coordinates for four marked corners. A KML/KMZ also works on its own. For a north-up overhead view, you can instead estimate placement using the area and the coordinates at the marked crosshair. Select **Generate parcel in 3D** to sample the site's elevation grid, clip it to the boundary, and inspect or download the parcel. The viewer reports horizontal area and perimeter plus minimum, area-weighted median, and maximum elevations. Original screenshot readings are shown separately for comparison.
-
 ## Terrain layers and site photos
 
-Satellite imagery covers the selected square centered on the entered coordinates or the exact footprint of an imported parcel. Click **Satellite** to apply edited coordinates and site extent. The default 10 m Sentinel-2 texture is included in SketchUp exports. **Satellite image quality** accepts a MapTiler browser key for higher-resolution viewing where available.
+Satellite imagery covers the selected square centered on the entered coordinates. Click **Satellite** to apply edited coordinates and site extent. The default 10 m Sentinel-2 texture is included in SketchUp exports. **Satellite image quality** accepts a MapTiler browser key for higher-resolution viewing where available.
 
 For your own image, generate terrain at the site coordinates, then use **Optional photo overlay → Choose photo** (JPG, PNG or WebP, up to 25 MB). A north-up aerial image works best. Use Plan view and **Align photo** to rotate, scale and shift the image in metres. The photo stays in your browser until you export it embedded in the SketchUp file. Refreshing or changing sites clears the photo. A single photo does not measure ground elevation.
 
