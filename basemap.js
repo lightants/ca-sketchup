@@ -4,8 +4,8 @@ const MAX_VIEW_PIXELS = 768;
 const cache = new Map();
 const satelliteCredit = 'EOxCloudless by EOX IT Services GmbH · Contains modified Copernicus Sentinel data 2016';
 const providers = {
-  satellite: {
-    name: 'Satellite imagery', maxZoom: 14, attribution: satelliteCredit,
+  sentinel: {
+    name: 'Sentinel-2 · 2016 · 10 m', maxZoom: 14, attribution: satelliteCredit,
     url: 'https://cloudless.eox.at/', exportable: true,
     exportAttribution: satelliteCredit + '. https://cloudless.eox.at/ · CC BY 4.0 https://creativecommons.org/licenses/by/4.0/ · Cropped and reprojected for this model.',
     tile: (z, x, y) => `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/${z}/${y}/${x}.jpg`
@@ -50,13 +50,14 @@ async function drawTile(provider, zoom, x, y, context, left, top, signal) {
 }
 
 export async function loadBasemap(kind, bounds, {signal} = {}) {
-  const provider = providers[kind];
-  if (!Object.hasOwn(providers, kind)) throw Error('Unknown basemap.');
+  const source = kind === 'satellite' ? 'sentinel' : kind;
+  const provider = providers[source];
+  if (!Object.hasOwn(providers, source)) throw Error('Unknown basemap.');
   const {north, south, east, west} = bounds;
   if (![north, south, east, west].every(Number.isFinite) || north <= south || east <= west ||
       south < -85 || north > 85 || west < -180 || east > 180) throw Error('Invalid basemap bounds.');
   signal?.throwIfAborted();
-  const key = [kind, north, south, east, west].join(',');
+  const key = [source, north, south, east, west].join(',');
   if (cache.has(key)) return cache.get(key);
 
   const x = (west + 180) / 360, spanX = (east - west) / 360;
@@ -110,8 +111,8 @@ export async function loadBasemap(kind, bounds, {signal} = {}) {
     out.drawImage(mosaic, sourceX, top, pixelWidth, bottom - top, 0, row, result.width, 1);
     top = bottom;
   }
-  const {attribution, url, exportable, exportAttribution} = provider;
-  const layer = {canvas: result, attribution, url, exportable, exportAttribution};
+  const {name, url, attribution, exportable, exportAttribution} = provider;
+  const layer = {canvas: result, name, source, attribution, url, exportable, exportAttribution, bounds: {...bounds}};
   if (cache.size >= 6) cache.delete(cache.keys().next().value);
   cache.set(key, layer);
   return layer;

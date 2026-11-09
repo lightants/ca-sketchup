@@ -55,7 +55,7 @@ export class Viewer{
   this.fit(false);this.bind();new ResizeObserver(()=>this.drawSoon()).observe(canvas);
  }
  fit(notify=true){this.yaw=-.55;this.tilt=.64;this.zoom=1;this.dx=0;this.dy=0;this.probed=null;if(notify)this.drawSoon();}
- setModel(t){this.clearOverlay();this.model=t;this.geometry=modelGeometry(t);this.fit();this.prepare();}
+ setModel(t){this.clearOverlay();this.model=t;this.geometry=t.parcel || modelGeometry(t);this.fit();this.prepare();}
  setOverlay(image, options={}) {
   if (!this.model) throw new Error('Generate terrain before adding an image.');
   const texture=makeOverlayTexture(image,this.model.extent,options);
@@ -102,6 +102,23 @@ export class Viewer{
  }
  prepare(){
   if(!this.model)return;const t=this.model, {rows,cols,extent,heights,min,max}=t;
+  if(t.parcel){
+   const {positions,indices}=t.parcel;
+   const verts=[],triangles=[];
+   for(let i=0;i<positions.length;i+=3)verts.push([positions[i],positions[i+1],positions[i+2]]);
+   for(let i=0;i<indices.length;i+=3){
+    const a=indices[i],b=indices[i+1],c=indices[i+2];
+    const [x,y,z]=verts[a],q=verts[b],r=verts[c];
+    const dx=q[0]-x,dy=q[1]-y,dz=q[2]-z;
+    const ex=r[0]-x,ey=r[1]-y,ez=r[2]-z;
+    const nx=dy*ez-dz*ey,ny=dz*ex-dx*ez,nz=dx*ey-dy*ex;
+    const light=clamp(.65+.5*(-nx*.55+ny*.34+nz*.77)/Math.hypot(nx,ny,nz),.50,1.15);
+    const shade=this.style==='elevation'?tint(((z+q[2]+r[2])/3-min)/Math.max(.1,max-min)):[160,182,146];
+    triangles.push([a,b,c,'rgb('+shade.map(v=>Math.round(v*light)).join(',')+')']);
+   }
+   this.baseZ=min-extent*.055;this.midZ=(max+this.baseZ)/2;
+   this.mesh={verts,triangles,sides:[]};this.prepareOverlayUVs();this.drawSoon();return;
+  }
   // Limit on-screen mesh density during orbit. Downloads retain every sampled vertex.
   const stride=Math.max(1,Math.ceil((rows-1)/82)),sample=[];
   for(let a=0;a<rows-1;a+=stride)sample.push(a);sample.push(rows-1);
@@ -145,7 +162,7 @@ export class Viewer{
   }
   // An orthographic depth ordering also supports the software canvas on browsers without WebGL.
   ctx.lineJoin='round';
-  const overlay=this.overlay, flatDrape=overlay && Math.abs(ct)<1e-8 && this.style!=='wire';
+  const overlay=this.overlay, flatDrape=overlay && !this.model.parcel && Math.abs(ct)<1e-8 && this.style!=='wire';
   if(flatDrape){
    const corner=this.project(-extent/2,extent/2,this.midZ), m=k*extent/overlay.texture.width;
    ctx.save();
@@ -163,8 +180,10 @@ export class Viewer{
    }
   }
   for(const edge of sides){path(edge.map(i=>p[i]));ctx.strokeStyle='#5f745e';ctx.lineWidth=.85;ctx.stroke();}
+  if(!this.model.parcel){
   const marker=this.project(0,0,this.model.pinElevation);
   ctx.beginPath();ctx.arc(marker[0],marker[1],4.7,0,2*Math.PI);ctx.fillStyle='#1b5039';ctx.fill();ctx.lineWidth=2;ctx.strokeStyle='#f5f7e8';ctx.stroke();
+  }
   if(this.probed){const pos=this.project(...this.probed);ctx.beginPath();ctx.arc(pos[0],pos[1],6,0,2*Math.PI);ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();}
   this.onView(this);
  }

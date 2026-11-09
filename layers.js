@@ -1,16 +1,17 @@
+import {showSatellite,closeSatellite} from './satellite-view.js';
 import {loadBasemap} from './basemap.js';
 
 const $=id=>document.getElementById(id);
 const defaults={scale:100,rotation:0,east:0,north:0,opacity:100};
-const online=k=>k==='satellite'||k==='map';
+const online=k=>k==='sentinel'||k==='satellite'||k==='map';
 
-async function decodePhoto(file){
+export async function decodePhoto(file,maxEdge=2048){
  if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw Error('Choose a JPG, PNG or WebP image.');
  if(file.size>25*1024*1024)throw Error('Choose an image smaller than 25 MB.');
  const url=URL.createObjectURL(file);
  try{
   const img=new Image();img.src=url;await img.decode();
-  const factor=Math.min(1,2048/Math.max(img.naturalWidth,img.naturalHeight));
+  const factor=Math.min(1,maxEdge/Math.max(img.naturalWidth,img.naturalHeight));
   const c=document.createElement('canvas');
   c.width=Math.max(1,Math.round(img.naturalWidth*factor));c.height=Math.max(1,Math.round(img.naturalHeight*factor));
   c.getContext('2d').drawImage(img,0,0,c.width,c.height);return c;
@@ -61,12 +62,22 @@ export class TerrainLayers{
  async render(){
   this.request?.abort();const job=new AbortController();this.request=job;
   const kind=$('style').value;
+  closeSatellite();
+  const scene=kind==='satellite'&&!!this.model;
+  $('sceneLinks').hidden=!scene;$('satelliteView').setAttribute('aria-pressed',String(scene));
+  document.querySelector('.mouseHint').textContent=scene?'Drag to explore · Right-drag to tilt or rotate · Scroll to zoom':'Drag to orbit · Shift + drag to pan · Scroll to zoom';
+
   this.layer=null;this.busy=false;this.view.clearOverlay();this.view.style=online(kind)||kind==='photo'?'clay':kind;
   this.view.prepare();document.querySelector('.legend').style.visibility=kind==='elevation'?'visible':'hidden';
   $('layerCredit').hidden=true;$('retryLayer').hidden=true;
   $('alignment').hidden=!(kind==='photo'&&this.photo);
   const status=$('layerStatus');$('layerBar').hidden=!online(kind)&&kind!=='photo';
   if(!this.model){status.textContent='Generate terrain to display this layer.';this.refresh();return;}
+  if(scene){
+   showSatellite(this.model);
+   status.textContent='3D satellite imagery · Esri World Imagery. Export uses the terrain model. ';
+   this.refresh();return;
+  }
   if(kind==='photo'&&this.photo){
    this.applyPhoto();this.layer={name:'Site photo',exportable:true,attribution:'User-supplied image'};status.textContent='Site photo · aligned manually';
   }
@@ -75,7 +86,7 @@ export class TerrainLayers{
   try{
    const result=await loadBasemap(kind,this.model.bounds,{signal:job.signal});if(this.request!==job)return;
    this.view.setOverlay(result.canvas);this.layer={...result,name:kind==='map'?'Street map':'Satellite imagery'};
-   status.textContent=kind==='map'?'Street map · exported model uses plain terrain.':'Satellite · ';
+   status.textContent=kind==='map'?'Street map · exported model uses plain terrain.':'Satellite · 10 m · included in export. ';
    const credit=$('layerCredit');credit.textContent=result.attribution;credit.href=result.url;credit.hidden=false;
   }catch(err){
    if(this.request!==job)return;

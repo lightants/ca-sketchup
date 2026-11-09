@@ -31,7 +31,7 @@ async function packed(path, width, signal) {
   return remember(packedCache, path, values, 8);
 }
 
-function degreeScales(lat) {
+export function degreeScales(lat) {
   const sin = Math.sin(lat * radians);
   const w = 1 - 0.00669437999014 * sin * sin;
   return {

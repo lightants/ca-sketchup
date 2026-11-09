@@ -1,0 +1,13 @@
+The browser loads these files only for local screenshot OCR.
+
+Tesseract.js and worker distribution 7.0.0
+https://github.com/naptha/tesseract.js
+Tesseract-JS-LICENSE and the distribution license notices apply.
+
+Tesseract.js Core 7.0.0, WebAssembly LSTM build
+https://github.com/naptha/tesseract.js-core
+See Tesseract-core-LICENSE.
+
+English fast LSTM data (eng.traineddata, gzip compressed without modification)
+https://github.com/tesseract-ocr/tessdata_fast
+Licensed under Apache License 2.0, as reproduced in Tesseract-JS-LICENSE.

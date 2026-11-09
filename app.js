@@ -1,4 +1,6 @@
-import {loadTerrain} from './data/elevation.js';
+import {setupParcelImport,describeEarth} from './parcel-import.js';
+import {clipTerrain} from './parcel-mesh.js';
+import {loadTerrain,degreeScales} from './data/elevation.js';
 import {TerrainLayers} from './layers.js';
 import {Viewer} from './viewer.js';
 import {parseCoordinates} from './coordinates.js';
@@ -13,7 +15,7 @@ function controls(){ $('export').disabled=!model||!!pending||dirty||exporting||!
 const view=new Viewer($('canvas'),v=>{
  $('zoomVal').textContent=Math.round(v.zoom*100)+'%';
  $('needle').style.transform='rotate('+(Math.atan2(-Math.sin(v.yaw),Math.cos(v.yaw)*Math.sin(v.tilt))*180/Math.PI)+'deg)';
- const isPlan=v.tilt>1.569;$('plan').setAttribute('aria-pressed',isPlan);$('iso').setAttribute('aria-pressed',!isPlan);
+ const isScene=$('stage').classList.contains('earthScene');const isPlan=!isScene&&v.tilt>1.569;$('plan').setAttribute('aria-pressed',isPlan);$('iso').setAttribute('aria-pressed',!isPlan&&!isScene);
 },p=>{const info=$('probeInfo');info.hidden=false;info.textContent=p?'Surface elevation · '+formatM(p[2]):'Click a point on the terrain surface.';});
 const layers=new TerrainLayers(view,controls);
 for(const [i,s] of samples.entries()){
@@ -22,32 +24,71 @@ for(const [i,s] of samples.entries()){
 function report(msg){const el=$('problem');el.textContent=msg;el.hidden=!msg;}
 function markDraft(){pending?.abort();pending=null;dirty=true;controls();$('load').hidden=true;$('generate').querySelector('span').textContent='Generate terrain';$('status').textContent='Inputs changed · generate to apply';report('');}
 $('coords').oninput=markDraft;$('extent').onchange=markDraft;
-async function generate(){
+async function generate(parcelInput=null){
  pending?.abort();const controller=new AbortController();pending=controller;report('');controls();
- let location;try{location=parseCoordinates($('coords').value);}catch(e){pending=null;dirty=true;controls();report(e.message);$('load').hidden=true;$('generate').querySelector('span').textContent='Generate terrain';$('status').textContent='Check coordinates';return;}
- const extent=+$('extent').value, selected=samples.find(s=>{const a=parseCoordinates(s.coords);return Math.abs(a.lat-location.lat)<.00001&&Math.abs(a.lon-location.lon)<.00001;});
+ let location,extent=+$('extent').value,ring;
+ try{
+  if(parcelInput){
+   const {geo}=parcelInput;
+   const mid=values=>(Math.min(...values)+Math.max(...values))/2;
+   location={lat:mid(geo.map(p=>p.lat)),lon:mid(geo.map(p=>p.lon))};
+   const scale=degreeScales(location.lat);
+   ring=geo.map(p=>[(p.lon-location.lon)*scale.east,(p.lat-location.lat)*scale.north]);
+   const width=2*Math.max(...ring.flat().map(Math.abs));
+   if(!Number.isFinite(width)||width>5000)throw Error('Choose one parcel within the 5 km terrain limit.');
+   extent=Math.min(5000,Math.max(200,Math.ceil(width*1.03)));
+  }else location=parseCoordinates($('coords').value);
+ }catch(e){pending=null;dirty=true;controls();report(e.message);$('load').hidden=true;$('generate').querySelector('span').textContent='Generate terrain';$('status').textContent='Check coordinates';if(parcelInput)throw e;return;}
+ const selected=samples.find(s=>{const a=parseCoordinates(s.coords);return Math.abs(a.lat-location.lat)<.00001&&Math.abs(a.lon-location.lon)<.00001;});
  $('load').hidden=false;$('load').textContent='Loading terrain…';$('status').textContent='Loading elevations';$('generate').querySelector('span').textContent='Generating…';
  try{
   const t=await loadTerrain({...location,extent,signal:controller.signal,onStatus:s=>{if(pending===controller)$('load').textContent=s;}});
-  if(pending!==controller)return;
-  view.setModel(t);layers.setModel(t);model=t;dirty=false;exportName=selected?.name||'Mindanao site';
-  $('siteName').replaceChildren(document.createTextNode(exportName+' '));const sub=document.createElement('small');sub.textContent='/ '+(selected?.area||'Custom location');$('siteName').append(sub);
+  if(pending!==controller)throw new DOMException('Terrain generation cancelled.','AbortError');
+  if(parcelInput){
+   t.parcel=clipTerrain(t,ring);t.min=t.parcel.min;t.max=t.parcel.max;
+   $('coords').value=t.lat.toFixed(7)+', '+t.lon.toFixed(7);
+   $('extent').querySelector('[data-parcel]')?.remove();
+   const custom=new Option(extent+' m · parcel extent',extent);custom.dataset.parcel='';$('extent').add(custom);$('extent').value=String(extent);
+   $('style').value='elevation';
+  }
+  view.setModel(t);layers.setModel(t);model=t;dirty=false;exportName=parcelInput?'Survey parcel':selected?.name||'Mindanao site';
+  $('siteName').replaceChildren(document.createTextNode(exportName+' '));const sub=document.createElement('small');sub.textContent='/ '+(parcelInput?parcelInput.placement:selected?.area||'Custom location');$('siteName').append(sub);
   for(const el of $('sites').children){const active=samples[+el.dataset.index]===selected;el.classList.toggle('active',active);el.setAttribute('aria-pressed',active);el.querySelector('em').textContent=active?'•':'↗';}
   $('dataDesc').textContent=t.source+' provides the elevations for this model. Nominal spacing is '+t.spacing+' m. Vertical reference: '+t.datum+'.';$('credit').textContent=t.attribution;
   $('sourceName').textContent=t.source+' · '+t.spacing+' m';
   $('pinValue').textContent=formatM(t.pinElevation);$('relief').textContent=formatM(t.max-t.min);$('area').textContent=Number((extent*extent/1e6).toFixed(2))+' km²';$('lo').textContent=formatM(t.min);$('hi').textContent=formatM(t.max);
-  $('status').textContent='Terrain ready';$('coordRead').textContent=t.lat.toFixed(5)+'° N   '+t.lon.toFixed(5)+'° E';$('probeInfo').hidden=true;
- }catch(e){if(pending!==controller)return;dirty=true;report(e.message||'Elevation data is unavailable. Please try again.');$('status').textContent='Generation failed';}
+  $('parcelResults').hidden=!parcelInput;$('pinLabel').textContent=parcelInput?'MEDIAN ELEVATION':'PIN ELEVATION';
+  if(parcelInput){
+   const p=t.parcel, m=v=>v.toLocaleString(undefined,{maximumFractionDigits:1});
+   $('area').textContent=m(p.area)+' m²';$('pinValue').textContent=m(p.median)+' m';
+   $('measureValues').textContent='Area '+m(p.area)+' m² · Perimeter '+m(p.perimeter)+' m · Elevation min '+m(p.min)+' m / median '+m(p.median)+' m / max '+m(p.max)+' m · '+t.source;
+   const original=describeEarth(parcelInput.earth);
+   $('earthValues').textContent=original?'Google Earth screenshot · '+original:'';
+   const reportedArea=parcelInput.earth?.area;
+   if(reportedArea&&Math.abs(p.area-reportedArea)/reportedArea>.10)
+    $('earthValues').textContent+=' · Area differs by over 10%. Check the matched parcel or corner placement.';
+  }
+  $('status').textContent=parcelInput?'Parcel terrain ready':'Terrain ready';$('coordRead').textContent=t.lat.toFixed(5)+'° N   '+t.lon.toFixed(5)+'° E';$('probeInfo').hidden=true;
+ }catch(e){if(pending!==controller){if(parcelInput)throw e;return;}dirty=true;report(e.message||'Elevation data is unavailable. Please try again.');$('status').textContent='Generation failed';if(parcelInput)throw e;}
  finally{if(pending===controller){pending=null;$('load').hidden=true;$('generate').querySelector('span').textContent='Generate terrain';controls();}}
 }
+setupParcelImport(generate);
 $('siteForm').onsubmit=e=>{e.preventDefault();generate();};
-$('iso').onclick=()=>view.fit();$('plan').onclick=()=>view.plan();$('fit').onclick=()=>view.fit();$('plus').onclick=()=>view.zoomBy(1.2);$('minus').onclick=()=>view.zoomBy(1/1.2);
+function returnToModel(){if($('style').value==='satellite'){$('style').value='elevation';layers.render();}}
+$('iso').onclick=()=>{returnToModel();view.fit();};$('plan').onclick=()=>{returnToModel();view.plan();};
+$('satelliteView').onclick=()=>{if(!model)return;$('style').value='satellite';layers.render();};$('fit').onclick=()=>view.fit();$('plus').onclick=()=>view.zoomBy(1.2);$('minus').onclick=()=>view.zoomBy(1/1.2);
 document.querySelectorAll('[data-tool]').forEach(el=>el.onclick=()=>{view.tool=el.dataset.tool;for(const b of document.querySelectorAll('[data-tool]'))b.setAttribute('aria-pressed',b===el);$('canvas').style.cursor=view.tool==='probe'?'crosshair':'grab';$('probeInfo').hidden=view.tool!=='probe';$('probeInfo').textContent='Click a point on the terrain surface.';});
 $('about').onclick=()=>$('sourceDialog').showModal();$('sourceDialog').querySelector('.close').onclick=()=>$('sourceDialog').close();
 $('export').onclick=async()=>{
  if(!model||dirty||pending||exporting||layers.busy)return;
  const t=model,name=exportName;exporting=true;controls();const label=$('export').querySelector('span');label.textContent='Exporting…';
- try{const geometry=view.geometry;const texture=await layers.exportTexture();const blob=await exportSketchUp({...geometry,texture,name:name+' terrain',latitude:t.lat,longitude:t.lon,source:t.source+' · '+t.spacing+' m · '+t.datum,attribution:t.attribution});
+ try{const geometry=view.geometry;const texture=await layers.exportTexture();
+ if(t.parcel&&texture){
+  const coords=geometry.positions;
+  texture.uvs=new Float32Array(coords.length/3*2);
+  for(let i=0;i<coords.length/3;i++){texture.uvs[2*i]=.5+coords[3*i]/t.extent;texture.uvs[2*i+1]=.5-coords[3*i+1]/t.extent;}
+ }
+ const blob=await exportSketchUp({...geometry,texture,name:name+' terrain',latitude:t.lat,longitude:t.lon,source:t.source+' · '+t.spacing+' m · '+t.datum,attribution:t.attribution});
  const url=URL.createObjectURL(blob), a=document.createElement('a');a.href=url;a.download=name+' terrain.skp';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);if(model===t&&!dirty&&!pending)$('status').textContent='SketchUp file downloaded';}
  catch(e){report(e.message||'Could not create the SketchUp file.');}finally{exporting=false;label.textContent='Export model';controls();}
 };
@@ -88,6 +129,8 @@ $('newModel').onclick = () => {
  $('coords').value = '';
  markDraft();
  model = null;
+ $('parcelResults').hidden=true;$('pinLabel').textContent='PIN ELEVATION';
+ $('extent').querySelector('[data-parcel]')?.remove();
  layers.reset();
  view.model = null;
  view.mesh = null;
