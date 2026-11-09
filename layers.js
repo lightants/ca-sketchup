@@ -1,4 +1,3 @@
-import {showSatellite,closeSatellite} from './satellite-view.js';
 import {loadBasemap} from './basemap.js';
 
 const $=id=>document.getElementById(id);
@@ -19,9 +18,14 @@ export async function decodePhoto(file,maxEdge=2048){
 }
 
 export class TerrainLayers{
- constructor(view,refresh){
+ constructor(view,refresh,applySelection){
   this.view=view;this.refresh=refresh;this.photoVersion=0;this.busy=false;
-  $('style').onchange=()=>this.render();
+  this.apiKey='';
+  $('style').onchange=applySelection;
+  $('imagerySetup').onsubmit=event=>{
+   event.preventDefault();this.apiKey=$('imageryKey').value.trim();
+   $('style').value='satellite';applySelection();
+  };
   $('retryLayer').onclick=()=>this.render();
   $('photoFile').onchange=async e=>{
    const file=e.target.files[0];e.target.value='';if(!file)return;
@@ -57,40 +61,33 @@ export class TerrainLayers{
   this.model=model;this.render();
  }
  reset(){
-  this.clearPhoto();this.model=null;$('style').value='elevation';this.render();
+  this.clearPhoto();this.model=null;$('style').value='satellite';this.render();
  }
  async render(){
   this.request?.abort();const job=new AbortController();this.request=job;
   const kind=$('style').value;
-  closeSatellite();
-  const scene=kind==='satellite'&&!!this.model;
-  $('sceneLinks').hidden=!scene;$('satelliteView').setAttribute('aria-pressed',String(scene));
-  document.querySelector('.mouseHint').textContent=scene?'Drag to explore · Right-drag to tilt or rotate · Scroll to zoom':'Drag to orbit · Shift + drag to pan · Scroll to zoom';
-
+  $('satelliteView').setAttribute('aria-pressed',String(kind==='satellite'&&!!this.model));
   this.layer=null;this.busy=false;this.view.clearOverlay();this.view.style=online(kind)||kind==='photo'?'clay':kind;
   this.view.prepare();document.querySelector('.legend').style.visibility=kind==='elevation'?'visible':'hidden';
-  $('layerCredit').hidden=true;$('retryLayer').hidden=true;
+  $('detailLogo').hidden=true;$('layerCredit').hidden=true;$('retryLayer').hidden=true;
   $('alignment').hidden=!(kind==='photo'&&this.photo);
   const status=$('layerStatus');$('layerBar').hidden=!online(kind)&&kind!=='photo';
   if(!this.model){status.textContent='Generate terrain to display this layer.';this.refresh();return;}
-  if(scene){
-   showSatellite(this.model);
-   status.textContent='3D satellite imagery · Esri World Imagery. Export uses the terrain model. ';
-   this.refresh();return;
-  }
   if(kind==='photo'&&this.photo){
    this.applyPhoto();this.layer={name:'Site photo',exportable:true,attribution:'User-supplied image'};status.textContent='Site photo · aligned manually';
   }
   if(!online(kind)){this.refresh();return;}
   this.busy=true;this.refresh();status.textContent='Loading '+(kind==='map'?'street map':'satellite imagery')+'…';
   try{
-   const result=await loadBasemap(kind,this.model.bounds,{signal:job.signal});if(this.request!==job)return;
+   const result=await loadBasemap(kind,this.model.bounds,{signal:job.signal,apiKey:this.apiKey});if(this.request!==job)return;
+   $('detailLogo').hidden=result.source!=='detailed';
    this.view.setOverlay(result.canvas);this.layer={...result,name:kind==='map'?'Street map':'Satellite imagery'};
-   status.textContent=kind==='map'?'Street map · exported model uses plain terrain.':'Satellite · 10 m · included in export. ';
+   const footprint=this.model.parcel?'Parcel boundary':this.model.extent.toLocaleString()+' m × '+this.model.extent.toLocaleString()+' m';
+   status.textContent=footprint+' · '+(kind==='map'?'Street map':result.name)+(result.exportable?' · included in export. ':' · display imagery. ');
    const credit=$('layerCredit');credit.textContent=result.attribution;credit.href=result.url;credit.hidden=false;
   }catch(err){
    if(this.request!==job)return;
-   status.textContent=(kind==='map'?'Street map':'Satellite imagery')+' unavailable. Showing plain terrain.';$('retryLayer').hidden=false;
+   status.textContent=(kind==='map'?'Street map':'Satellite imagery')+(err.message?.startsWith('MapTiler')?' · '+err.message:' unavailable. Showing plain terrain.');$('retryLayer').hidden=false;
   }finally{if(this.request===job){this.busy=false;this.refresh();}}
  }
  async exportTexture(){

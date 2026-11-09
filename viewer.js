@@ -11,6 +11,7 @@ function makeOverlayTexture(image, extent, {scale=1, rotation=0, east=0, north=0
  const canvas=document.createElement('canvas');
  canvas.width=canvas.height=size;
  const ctx=canvas.getContext('2d');
+ ctx.imageSmoothingQuality='high';
  const fit=size/Math.max(width,height)*scale;
  ctx.translate(size*(.5+east/extent), size*(.5-north/extent));
  ctx.rotate(rotation*Math.PI/180);
@@ -97,6 +98,15 @@ export class Viewer{
   const ctx=canvas.getContext('2d');
   ctx.fillStyle='#a0b692';
   ctx.fillRect(0,0,canvas.width,canvas.height);
+  if(this.model.parcelBoundary){
+   const size=canvas.width,extent=this.model.extent;
+   ctx.beginPath();
+   this.model.parcelBoundary.forEach(([x,y],i)=>{
+    const u=(.5+x/extent)*size,v=(.5-y/extent)*size;
+    if(i===0)ctx.moveTo(u,v);else ctx.lineTo(u,v);
+   });
+   ctx.closePath();ctx.clip();
+  }
   ctx.drawImage(texture,0,0);
   return canvas;
  }
@@ -144,7 +154,7 @@ export class Viewer{
  }
  drawSoon(){if(this.frame)return;this.frame=requestAnimationFrame(()=>{this.frame=0;this.draw();});}
  draw(){
-  const cv=this.canvas,ctx=this.ctx,w=cv.clientWidth,h=cv.clientHeight;if(!w||!h)return;const dpr=Math.min(1.7,window.devicePixelRatio||1);
+  const cv=this.canvas,ctx=this.ctx,w=cv.clientWidth,h=cv.clientHeight;if(!w||!h)return;const dpr=Math.min(2.5,window.devicePixelRatio||1);
   if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);}
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);if(!this.mesh)return;
   const extent=this.model.extent,k=this.zoom*Math.min(w*.77/extent,h*.79/extent),co=Math.cos(this.yaw),si=Math.sin(this.yaw),ct=Math.cos(this.tilt),st=Math.sin(this.tilt);

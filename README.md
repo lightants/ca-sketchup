@@ -12,11 +12,11 @@ For a tilted view, import the matching single-polygon KML/KMZ from Google Earth,
 
 ## Terrain layers and site photos
 
-Select **Satellite** beside **3D view** to explore detailed aerial imagery and elevation around the site in the embedded Esri World Imagery scene. **Open in Google Earth** opens the same location and a tilted camera view in Earth. Both need an internet connection. The high-resolution scene is for viewing. To include an image in a SketchUp export, choose **Terrain layer → Satellite · exportable (10 m)** or align your own photo. **Street map** shows roads and place names.
+Satellite imagery covers the selected square centered on the entered coordinates or the exact footprint of an imported parcel. Click **Satellite** to apply edited coordinates and site extent. The default 10 m Sentinel-2 texture is included in SketchUp exports. **Satellite image quality** accepts a MapTiler browser key for higher-resolution viewing where available.
 
 For your own image, generate terrain at the site coordinates, then use **Optional photo overlay → Choose photo** (JPG, PNG or WebP, up to 25 MB). A north-up aerial image works best. Use Plan view and **Align photo** to rotate, scale and shift the image in metres. The photo stays in your browser until you export it embedded in the SketchUp file. Refreshing or changing sites clears the photo. A single photo does not measure ground elevation.
 
-Satellite: [EOxCloudless](https://cloudless.eox.at/) by EOX IT Services GmbH, contains modified Copernicus Sentinel data 2016, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), cropped and reprojected for the model. Street map: [© OpenStreetMap contributors](https://www.openstreetmap.org/copyright).
+The sample sites use modified Copernicus Sentinel-2 L2A imagery from 2026. [Acquisition dates and source scenes](data/imagery/catalog.js). Other locations use [EOxCloudless](https://cloudless.eox.at/) by EOX IT Services GmbH, containing modified Copernicus Sentinel data 2016 under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Imagery is cropped and reprojected. Street map data is credited to [OpenStreetMap contributors](https://www.openstreetmap.org/copyright).
 
 ## Run locally
 

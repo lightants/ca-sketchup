@@ -15,9 +15,11 @@ function controls(){ $('export').disabled=!model||!!pending||dirty||exporting||!
 const view=new Viewer($('canvas'),v=>{
  $('zoomVal').textContent=Math.round(v.zoom*100)+'%';
  $('needle').style.transform='rotate('+(Math.atan2(-Math.sin(v.yaw),Math.cos(v.yaw)*Math.sin(v.tilt))*180/Math.PI)+'deg)';
- const isScene=$('stage').classList.contains('earthScene');const isPlan=!isScene&&v.tilt>1.569;$('plan').setAttribute('aria-pressed',isPlan);$('iso').setAttribute('aria-pressed',!isPlan&&!isScene);
+ const isPlan=v.tilt>1.569;
+ $('plan').setAttribute('aria-pressed',isPlan);
+ $('iso').setAttribute('aria-pressed',!isPlan);
 },p=>{const info=$('probeInfo');info.hidden=false;info.textContent=p?'Surface elevation · '+formatM(p[2]):'Click a point on the terrain surface.';});
-const layers=new TerrainLayers(view,controls);
+const layers=new TerrainLayers(view,controls,()=>dirty||!model?generate():layers.render());
 for(const [i,s] of samples.entries()){
  const b=document.createElement('button');b.type='button';b.className='site';b.dataset.index=i;b.innerHTML='<img alt="" class="siteThumb" src="./thumbs/'+s.photo+'.png"><span><strong>'+s.name+'</strong><small>'+s.area+'</small></span><em aria-hidden="true"></em>';b.onclick=()=>{$('coords').value=s.coords;$('extent').value=s.size;generate();};$('sites').append(b);
 }
@@ -45,11 +47,11 @@ async function generate(parcelInput=null){
   const t=await loadTerrain({...location,extent,signal:controller.signal,onStatus:s=>{if(pending===controller)$('load').textContent=s;}});
   if(pending!==controller)throw new DOMException('Terrain generation cancelled.','AbortError');
   if(parcelInput){
-   t.parcel=clipTerrain(t,ring);t.min=t.parcel.min;t.max=t.parcel.max;
+   t.parcel=clipTerrain(t,ring);t.parcelBoundary=ring;t.min=t.parcel.min;t.max=t.parcel.max;
    $('coords').value=t.lat.toFixed(7)+', '+t.lon.toFixed(7);
    $('extent').querySelector('[data-parcel]')?.remove();
    const custom=new Option(extent+' m · parcel extent',extent);custom.dataset.parcel='';$('extent').add(custom);$('extent').value=String(extent);
-   $('style').value='elevation';
+   $('style').value='satellite';
   }
   view.setModel(t);layers.setModel(t);model=t;dirty=false;exportName=parcelInput?'Survey parcel':selected?.name||'Mindanao site';
   $('siteName').replaceChildren(document.createTextNode(exportName+' '));const sub=document.createElement('small');sub.textContent='/ '+(parcelInput?parcelInput.placement:selected?.area||'Custom location');$('siteName').append(sub);
@@ -74,9 +76,14 @@ async function generate(parcelInput=null){
 }
 setupParcelImport(generate);
 $('siteForm').onsubmit=e=>{e.preventDefault();generate();};
-function returnToModel(){if($('style').value==='satellite'){$('style').value='elevation';layers.render();}}
-$('iso').onclick=()=>{returnToModel();view.fit();};$('plan').onclick=()=>{returnToModel();view.plan();};
-$('satelliteView').onclick=()=>{if(!model)return;$('style').value='satellite';layers.render();};$('fit').onclick=()=>view.fit();$('plus').onclick=()=>view.zoomBy(1.2);$('minus').onclick=()=>view.zoomBy(1/1.2);
+$('iso').onclick=()=>view.fit();
+$('plan').onclick=()=>view.plan();
+$('satelliteView').onclick=()=>{
+ $('style').value='satellite';
+ if(dirty||!model){generate();return;}
+ layers.render();
+};
+$('fit').onclick=()=>view.fit();$('plus').onclick=()=>view.zoomBy(1.2);$('minus').onclick=()=>view.zoomBy(1/1.2);
 document.querySelectorAll('[data-tool]').forEach(el=>el.onclick=()=>{view.tool=el.dataset.tool;for(const b of document.querySelectorAll('[data-tool]'))b.setAttribute('aria-pressed',b===el);$('canvas').style.cursor=view.tool==='probe'?'crosshair':'grab';$('probeInfo').hidden=view.tool!=='probe';$('probeInfo').textContent='Click a point on the terrain surface.';});
 $('about').onclick=()=>$('sourceDialog').showModal();$('sourceDialog').querySelector('.close').onclick=()=>$('sourceDialog').close();
 $('export').onclick=async()=>{
@@ -179,5 +186,11 @@ document.addEventListener('keydown', event => {
 });
 $('homeAbout').onclick = () => $('homeDialog').showModal();
 $('closeHomeAbout').onclick = () => $('homeDialog').close();
+// A site link opens the exact pin and extent selected by the sender.
+const siteLink=new URLSearchParams(location.search);
+if(siteLink.has('center')){
+ $('coords').value=siteLink.get('center');
+ if([...$('extent').options].some(option=>option.value===siteLink.get('extent')))$('extent').value=siteLink.get('extent');
+}
 window.addEventListener('hashchange', showRoute);
 showRoute();

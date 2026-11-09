@@ -1,9 +1,15 @@
+import {imageryPatches} from './data/imagery/catalog.js';
 // The DEM grid is linear in latitude and longitude. Both tile services use Web Mercator.
 const TILE_SIZE = 256;
 const MAX_VIEW_PIXELS = 768;
 const cache = new Map();
 const satelliteCredit = 'EOxCloudless by EOX IT Services GmbH · Contains modified Copernicus Sentinel data 2016';
 const providers = {
+  detailed: {
+    name: 'MapTiler Satellite', maxZoom: 19, attribution: '© MapTiler · Satellite imagery and contributors',
+    url: 'https://www.maptiler.com/copyright/', exportable: false,
+    tile: (z,x,y,apiKey) => 'https://api.maptiler.com/tiles/satellite-v2/'+z+'/'+x+'/'+y+'.jpg?key='+encodeURIComponent(apiKey)
+  },
   sentinel: {
     name: 'Sentinel-2 · 2016 · 10 m', maxZoom: 14, attribution: satelliteCredit,
     url: 'https://cloudless.eox.at/', exportable: true,
@@ -28,10 +34,13 @@ function canvas(width, height) {
   return result;
 }
 
-async function drawTile(provider, zoom, x, y, context, left, top, signal) {
-  const response = await fetch(provider.tile(zoom, x, y), {
+async function drawTile(provider, zoom, x, y, context, left, top, signal, apiKey) {
+  const response = await fetch(provider.tile(zoom, x, y, apiKey), {
     signal, referrerPolicy: 'strict-origin-when-cross-origin'
   });
+  if(provider===providers.detailed && (response.status===401||response.status===403)){
+    throw Error('MapTiler rejected the browser key. Check the key and its allowed websites, or clear it in Satellite image quality.');
+  }
   if (response.status === 429) throw Error(provider.name + ' is busy. Try again later.');
   if (!response.ok || !response.headers.get('content-type')?.startsWith('image/')) {
     throw Error(provider.name + ' is unavailable for this location.');
@@ -49,8 +58,32 @@ async function drawTile(provider, zoom, x, y, context, left, top, signal) {
   }
 }
 
-export async function loadBasemap(kind, bounds, {signal} = {}) {
-  const source = kind === 'satellite' ? 'sentinel' : kind;
+// These north-up, cloud-screened scenes are prepared at native 10 m spacing.
+async function loadLocalSatellite(bounds, signal){
+  const patch=imageryPatches.find(p=>p.north>=bounds.north && p.south<=bounds.south &&
+    p.west<=bounds.west && p.east>=bounds.east);
+  if(!patch)return null;
+  const response=await fetch(new URL('./data/imagery/'+patch.image,import.meta.url),{signal});
+  if(!response.ok)throw Error('The site imagery could not be opened.');
+  const bitmap=await createImageBitmap(await response.blob());
+  try{
+    const x=(bounds.west-patch.west)/(patch.east-patch.west)*bitmap.width;
+    const y=(patch.north-bounds.north)/(patch.north-patch.south)*bitmap.height;
+    const width=(bounds.east-bounds.west)/(patch.east-patch.west)*bitmap.width;
+    const height=(bounds.north-bounds.south)/(patch.north-patch.south)*bitmap.height;
+    const side=Math.max(1,Math.ceil(Math.max(width,height)));
+    const result=canvas(side,side),context=result.getContext('2d');
+    context.imageSmoothingQuality='high';
+    context.drawImage(bitmap,x,y,width,height,0,0,side,side);
+    const credit='Contains modified Copernicus Sentinel data '+patch.date.slice(0,4);
+    return {canvas:result,source:'sentinel',name:'Sentinel-2 · '+patch.date+' · 10 m',
+      attribution:credit,url:'https://earth-search.aws.element84.com/v1/collections/sentinel-2-l2a/items/'+patch.item,
+      exportable:true,exportAttribution:credit+'. '+patch.item+'. Cropped, reprojected and contrast adjusted.',bounds:{...bounds}};
+  }finally{bitmap.close();}
+}
+
+export async function loadBasemap(kind, bounds, {signal, apiKey = ''} = {}) {
+  const source = kind === 'satellite' ? (apiKey ? 'detailed' : 'sentinel') : kind;
   const provider = providers[source];
   if (!Object.hasOwn(providers, source)) throw Error('Unknown basemap.');
   const {north, south, east, west} = bounds;
@@ -58,12 +91,20 @@ export async function loadBasemap(kind, bounds, {signal} = {}) {
       south < -85 || north > 85 || west < -180 || east > 180) throw Error('Invalid basemap bounds.');
   signal?.throwIfAborted();
   const key = [source, north, south, east, west].join(',');
-  if (cache.has(key)) return cache.get(key);
+  if (source!=='detailed' && cache.has(key)) return cache.get(key);
+
+  if(source==='sentinel'){
+    try{
+      const local=await loadLocalSatellite(bounds,signal);
+      if(local)return local;
+    }catch(error){if(signal?.aborted)throw error;}
+  }
 
   const x = (west + 180) / 360, spanX = (east - west) / 360;
   const y = mercatorY(north), spanY = mercatorY(south) - y;
+  const targetPixels=source==='detailed'?2048:MAX_VIEW_PIXELS;
   const zoom = Math.max(0, Math.min(provider.maxZoom,
-    Math.floor(Math.log2(MAX_VIEW_PIXELS / (TILE_SIZE * Math.max(spanX, spanY))))));
+    Math.floor(Math.log2(targetPixels / (TILE_SIZE * Math.max(spanX, spanY))))));
   const scale = TILE_SIZE * 2 ** zoom;
   const pixelWidth = spanX * scale, pixelHeight = spanY * scale;
   const firstX = Math.floor(x * scale / TILE_SIZE), firstY = Math.floor(y * scale / TILE_SIZE);
@@ -84,7 +125,7 @@ export async function loadBasemap(kind, bounds, {signal} = {}) {
         const n = next++;
         const col = n % columns, row = Math.floor(n / columns);
         await drawTile(provider, zoom, firstX + col, firstY + row, ctx,
-          col * TILE_SIZE, row * TILE_SIZE, controller.signal);
+          col * TILE_SIZE, row * TILE_SIZE, controller.signal, apiKey);
       }
     }
     await Promise.all(Array.from({length: Math.min(3, count)}, worker));
@@ -113,7 +154,9 @@ export async function loadBasemap(kind, bounds, {signal} = {}) {
   }
   const {name, url, attribution, exportable, exportAttribution} = provider;
   const layer = {canvas: result, name, source, attribution, url, exportable, exportAttribution, bounds: {...bounds}};
-  if (cache.size >= 6) cache.delete(cache.keys().next().value);
-  cache.set(key, layer);
+  if(source!=='detailed'){
+    if (cache.size >= 6) cache.delete(cache.keys().next().value);
+    cache.set(key, layer);
+  }
   return layer;
 }
