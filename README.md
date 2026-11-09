@@ -2,11 +2,11 @@
 
 A browser-based terrain modeler for Mindanao, Philippines. Paste Google Earth coordinates in decimal degrees or DMS, choose the site width, inspect the terrain, and download a native SketchUp model.
 
-[Open CA Sketchup](https://mindanao-terrain-studio.casgpt.chatgpt.site/)
+[Open CA Sketchup](https://lightants.github.io/ca-sketchup/)
 
 ## Run locally
 
-Run `python3 -m http.server 8000` in this directory and open `http://localhost:8000/`. The static files can be hosted directly from the root of this branch.
+Run `python3 -m http.server 8000` in this directory and open `http://localhost:8000/`. GitHub Pages publishes the static files from the root of this branch.
 
 ## Elevation data
 
