@@ -1,6 +1,6 @@
 import {loadTerrain} from './data/elevation.js';
-import {TerrainLayers} from './layers.js';
-import {Viewer} from './viewer.js';
+import {TerrainLayers} from './layers.js?v=satellite2';
+import {Viewer} from './viewer.js?v=satellite2';
 import {parseCoordinates} from './coordinates.js';
 import {exportSketchUp} from './export/sketchup.js';
 const $=id=>document.getElementById(id);

@@ -1,100 +1,85 @@
-import {loadBasemap} from './basemap.js';
+import {loadBasemap} from './basemap.js?v=satellite2';
 
-const $=id=>document.getElementById(id);
-const defaults={scale:100,rotation:0,east:0,north:0,opacity:100};
-const online=k=>k==='sentinel'||k==='satellite'||k==='map';
+const $ = id => document.getElementById(id);
 
-export async function decodePhoto(file,maxEdge=2048){
- if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw Error('Choose a JPG, PNG or WebP image.');
- if(file.size>25*1024*1024)throw Error('Choose an image smaller than 25 MB.');
- const url=URL.createObjectURL(file);
- try{
-  const img=new Image();img.src=url;await img.decode();
-  const factor=Math.min(1,maxEdge/Math.max(img.naturalWidth,img.naturalHeight));
-  const c=document.createElement('canvas');
-  c.width=Math.max(1,Math.round(img.naturalWidth*factor));c.height=Math.max(1,Math.round(img.naturalHeight*factor));
-  c.getContext('2d').drawImage(img,0,0,c.width,c.height);return c;
- }finally{URL.revokeObjectURL(url);}
-}
-
-export class TerrainLayers{
- constructor(view,refresh,applySelection){
-  this.view=view;this.refresh=refresh;this.photoVersion=0;this.busy=false;
-  this.apiKey='';
-  $('style').onchange=applySelection;
-  $('imagerySetup').onsubmit=event=>{
-   event.preventDefault();this.apiKey=$('imageryKey').value.trim();
-   $('style').value='satellite';applySelection();
-  };
-  $('retryLayer').onclick=()=>this.render();
-  $('photoFile').onchange=async e=>{
-   const file=e.target.files[0];e.target.value='';if(!file)return;
-   const v=++this.photoVersion;$('photoMessage').textContent='Opening photo…';
-   try{
-    const image=await decodePhoto(file);if(v!==this.photoVersion)return;
-    this.photo={image,name:file.name};this.resetAlignment();
-    $('photoOption').disabled=false;$('style').value='photo';$('alignment').open=true;
-    $('photoMessage').textContent=file.name;this.render();if(this.model)this.view.plan();
-   }catch(err){if(v===this.photoVersion)$('photoMessage').textContent=err.message?.includes('Choose')?err.message:'Could not read that photo. Choose a JPG, PNG or WebP image.';}
-  };
-  for(const k of Object.keys(defaults))$(k).oninput=()=>{if(this.photo&&$('style').value==='photo'&&this.model)this.applyPhoto();};
-  $('resetPhoto').onclick=()=>{this.resetAlignment();this.render();};
-  $('removePhoto').onclick=()=>{this.clearPhoto();this.render();};
+export class TerrainLayers {
+ constructor(view, refresh, applySelection) {
+  this.view = view;
+  this.refresh = refresh;
+  this.busy = false;
+  $('style').onchange = applySelection;
+  $('retryLayer').onclick = () => this.render();
  }
- clearPhoto(){
-  this.photoVersion++;this.photo=null;$('photoFile').value='';$('photoOption').disabled=true;
-  if($('style').value==='photo')$('style').value='elevation';
-  $('photoMessage').textContent='';$('alignment').hidden=true;
+
+ setModel(model) {
+  this.model = model;
+  this.render();
  }
- resetAlignment(){for(const [k,v] of Object.entries(defaults))$(k).value=v;$('opacityVal').textContent='100%';}
- applyPhoto(){
-  const p={};
-  for(const k of Object.keys(defaults)){
-   const el=$(k),v=el.valueAsNumber;
-   p[k]=Number.isFinite(v)?Math.min(+el.max,Math.max(+el.min,v)):defaults[k];
+
+ reset() {
+  $('style').value = 'satellite';
+  this.setModel(null);
+ }
+
+ async render() {
+  this.request?.abort();
+  const job = new AbortController();
+  this.request = job;
+  const model = this.model;
+  const kind = $('style').value;
+  const satellite = kind === 'satellite';
+  const basemap = satellite || kind === 'map';
+  $('satelliteView').setAttribute('aria-pressed', String(satellite && !!model));
+  this.layer = null;
+  this.busy = false;
+  this.view.clearOverlay();
+  this.view.style = basemap ? 'clay' : kind;
+  this.view.prepare();
+  document.querySelector('.legend').style.visibility = kind === 'elevation' ? 'visible' : 'hidden';
+  for (const id of ['layerCredit','googleBrand','retryLayer','googlePreview']) $(id).hidden = true;
+  $('layerBar').hidden = !basemap || !model;
+  if (!basemap || !model) { this.refresh(); return; }
+  const status = $('layerStatus');
+  const preview = $('googlePreview');
+  if (satellite) {
+   const zoom = Math.round(Math.log2(800 * 156543.03392 * Math.cos(model.lat * Math.PI / 180) / model.extent));
+   preview.href = 'https://www.google.com/maps/@?' + new URLSearchParams({api:'1', map_action:'map',
+    basemap:'satellite', center:model.lat+','+model.lon, zoom:String(Math.min(21,zoom))});
+   preview.hidden = false;
   }
-  $('opacityVal').textContent=p.opacity+'%';p.scale/=100;p.opacity/=100;
-  this.view.setOverlay(this.photo.image,p);
- }
- setModel(model){
-  if(this.model&&(Math.abs(this.model.lat-model.lat)>1e-7||Math.abs(this.model.lon-model.lon)>1e-7))this.clearPhoto();
-  this.model=model;this.render();
- }
- reset(){
-  this.clearPhoto();this.model=null;$('style').value='satellite';this.render();
- }
- async render(){
-  this.request?.abort();const job=new AbortController();this.request=job;
-  const kind=$('style').value;
-  $('satelliteView').setAttribute('aria-pressed',String(kind==='satellite'&&!!this.model));
-  this.layer=null;this.busy=false;this.view.clearOverlay();this.view.style=online(kind)||kind==='photo'?'clay':kind;
-  this.view.prepare();document.querySelector('.legend').style.visibility=kind==='elevation'?'visible':'hidden';
-  $('detailLogo').hidden=true;$('layerCredit').hidden=true;$('retryLayer').hidden=true;
-  $('alignment').hidden=!(kind==='photo'&&this.photo);
-  const status=$('layerStatus');$('layerBar').hidden=!online(kind)&&kind!=='photo';
-  if(!this.model){status.textContent='Generate terrain to display this layer.';this.refresh();return;}
-  if(kind==='photo'&&this.photo){
-   this.applyPhoto();this.layer={name:'Site photo',exportable:true,attribution:'User-supplied image'};status.textContent='Site photo · aligned manually';
+  this.busy = true;
+  this.refresh();
+  status.textContent = satellite ? 'Loading satellite imagery…' : 'Loading street map…';
+  try {
+   const result = await loadBasemap(kind, model.bounds, {signal:job.signal});
+   if (this.request !== job) return;
+   this.view.setOverlay(result.canvas);
+   this.layer = result;
+   $('googleBrand').hidden = result.source !== 'google';
+   const width = model.extent.toLocaleString() + ' m';
+   status.textContent = (result.fallback ? 'Google imagery unavailable · ' : '') + width + ' × ' + width + ' · ' +
+    result.name + (result.exportable ? ' · included in export.' : result.source === 'google' ? ' · SketchUp uses Sentinel-2 imagery.' : ' · display only.');
+   $('retryLayer').hidden = !result.fallback;
+   const credit = $('layerCredit');
+   credit.textContent = result.attribution;
+   credit.href = result.url;
+   credit.hidden = false;
+  } catch (error) {
+   if (this.request !== job) return;
+   status.textContent = (satellite ? 'Satellite imagery' : 'Street map') + ' unavailable. Showing plain terrain.';
+   $('retryLayer').hidden = false;
+  } finally {
+   if (this.request === job) { this.busy = false; this.refresh(); }
   }
-  if(!online(kind)){this.refresh();return;}
-  this.busy=true;this.refresh();status.textContent='Loading '+(kind==='map'?'street map':'satellite imagery')+'…';
-  try{
-   const result=await loadBasemap(kind,this.model.bounds,{signal:job.signal,apiKey:this.apiKey});if(this.request!==job)return;
-   $('detailLogo').hidden=result.source!=='detailed';
-   this.view.setOverlay(result.canvas);this.layer={...result,name:kind==='map'?'Street map':'Satellite imagery'};
-   const footprint=this.model.parcel?'Parcel boundary':this.model.extent.toLocaleString()+' m × '+this.model.extent.toLocaleString()+' m';
-   status.textContent=footprint+' · '+(kind==='map'?'Street map':result.name)+(result.exportable?' · included in export. ':' · display imagery. ');
-   const credit=$('layerCredit');credit.textContent=result.attribution;credit.href=result.url;credit.hidden=false;
-  }catch(err){
-   if(this.request!==job)return;
-   status.textContent=(kind==='map'?'Street map':'Satellite imagery')+(err.message?.startsWith('MapTiler')?' · '+err.message:' unavailable. Showing plain terrain.');$('retryLayer').hidden=false;
-  }finally{if(this.request===job){this.busy=false;this.refresh();}}
  }
- async exportTexture(){
-  const info=this.layer;if(!info?.exportable)return;
-  const canvas=this.view.getOverlayCanvas();if(!canvas)throw Error('The image layer is not ready. Try exporting again.');
-  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.94));
-  if(!blob)throw Error('Could not prepare the terrain image.');
-  return {bytes:new Uint8Array(await blob.arrayBuffer()),mimeType:blob.type,name:info.name,attribution:info.exportAttribution||info.attribution};
+
+ async exportTexture() {
+  let info = this.layer;
+  if (info?.source === 'google') info = await loadBasemap('sentinel', this.model.bounds);
+  if (!info?.exportable) return;
+  const blob = await new Promise(resolve => info.canvas.toBlob(resolve, 'image/jpeg', .94));
+  if (!blob) throw Error('Could not prepare the terrain image.');
+  return {bytes:new Uint8Array(await blob.arrayBuffer()), mimeType:blob.type, name:info.name,
+   attribution:info.exportAttribution || info.attribution};
  }
 }

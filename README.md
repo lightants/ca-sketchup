@@ -4,11 +4,11 @@ A browser-based terrain modeler for Mindanao, Philippines. Paste Google Earth co
 
 [Open YCS Sketchup](https://lightants.github.io/ca-sketchup/)
 
-## Terrain layers and site photos
+## Satellite terrain
 
-Satellite imagery covers the selected square centered on the entered coordinates. Click **Satellite** to apply edited coordinates and site extent. The default 10 m Sentinel-2 texture is included in SketchUp exports. **Satellite image quality** accepts a MapTiler browser key for higher-resolution viewing where available.
+Satellite imagery wraps the measured terrain within the selected extent. The workspace uses Google Maps satellite tiles when a deployment key is configured and falls back to Sentinel-2 otherwise. The layer credits identify the image on screen. The Google Maps link opens satellite imagery centered on the model. Satellite SketchUp exports embed the independently sourced Sentinel-2 texture.
 
-For your own image, generate terrain at the site coordinates, then use **Optional photo overlay → Choose photo** (JPG, PNG or WebP, up to 25 MB). A north-up aerial image works best. Use Plan view and **Align photo** to rotate, scale and shift the image in metres. The photo stays in your browser until you export it embedded in the SketchUp file. Refreshing or changing sites clears the photo. A single photo does not measure ground elevation.
+To enable Google imagery for all visitors, enable billing and the [Map Tiles API](https://developers.google.com/maps/documentation/tile/get-api-key) in Google Cloud. Create a **browser key** restricted to the Map Tiles API and the website `https://lightants.github.io/*`. Set `googleMapsBrowserKey` in [satellite-config.js](satellite-config.js) and commit the change. The browser can read this value. Google controls coverage, image dates and maximum native zoom. Elevations come from the separate terrain dataset below.
 
 The sample sites use modified Copernicus Sentinel-2 L2A imagery from 2026. [Acquisition dates and source scenes](data/imagery/catalog.js). Other locations use [EOxCloudless](https://cloudless.eox.at/) by EOX IT Services GmbH, containing modified Copernicus Sentinel data 2016 under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Imagery is cropped and reprojected. Street map data is credited to [OpenStreetMap contributors](https://www.openstreetmap.org/copyright).
 

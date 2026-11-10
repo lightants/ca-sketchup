@@ -1,3 +1,4 @@
+import {googleSatelliteEnabled, googleSiteProvider} from './google-satellite.js';
 import {imageryPatches} from './data/imagery/catalog.js';
 // The DEM grid is linear in latitude and longitude. Both tile services use Web Mercator.
 const TILE_SIZE = 256;
@@ -5,11 +6,6 @@ const MAX_VIEW_PIXELS = 768;
 const cache = new Map();
 const satelliteCredit = 'EOxCloudless by EOX IT Services GmbH · Contains modified Copernicus Sentinel data 2016';
 const providers = {
-  detailed: {
-    name: 'MapTiler Satellite', maxZoom: 19, attribution: '© MapTiler · Satellite imagery and contributors',
-    url: 'https://www.maptiler.com/copyright/', exportable: false,
-    tile: (z,x,y,apiKey) => 'https://api.maptiler.com/tiles/satellite-v2/'+z+'/'+x+'/'+y+'.jpg?key='+encodeURIComponent(apiKey)
-  },
   sentinel: {
     name: 'Sentinel-2 · 2016 · 10 m', maxZoom: 14, attribution: satelliteCredit,
     url: 'https://cloudless.eox.at/', exportable: true,
@@ -34,13 +30,10 @@ function canvas(width, height) {
   return result;
 }
 
-async function drawTile(provider, zoom, x, y, context, left, top, signal, apiKey) {
-  const response = await fetch(provider.tile(zoom, x, y, apiKey), {
+async function drawTile(provider, zoom, x, y, context, left, top, signal) {
+  const response = await fetch(provider.tile(zoom, x, y), {
     signal, referrerPolicy: 'strict-origin-when-cross-origin'
   });
-  if(provider===providers.detailed && (response.status===401||response.status===403)){
-    throw Error('MapTiler rejected the browser key. Check the key and its allowed websites, or clear it in Satellite image quality.');
-  }
   if (response.status === 429) throw Error(provider.name + ' is busy. Try again later.');
   if (!response.ok || !response.headers.get('content-type')?.startsWith('image/')) {
     throw Error(provider.name + ' is unavailable for this location.');
@@ -82,16 +75,28 @@ async function loadLocalSatellite(bounds, signal){
   }finally{bitmap.close();}
 }
 
-export async function loadBasemap(kind, bounds, {signal, apiKey = ''} = {}) {
-  const source = kind === 'satellite' ? (apiKey ? 'detailed' : 'sentinel') : kind;
-  const provider = providers[source];
-  if (!Object.hasOwn(providers, source)) throw Error('Unknown basemap.');
+export async function loadBasemap(kind, bounds, {signal} = {}) {
+  if (kind === 'satellite' && googleSatelliteEnabled) {
+    try {
+      return await loadSource('google', bounds, signal);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      const fallback = await loadSource('sentinel', bounds, signal);
+      return {...fallback, fallback:true};
+    }
+  }
+  return loadSource(kind === 'satellite' ? 'sentinel' : kind, bounds, signal);
+}
+
+async function loadSource(source, bounds, signal) {
+  let provider = providers[source];
+  if (source !== 'google' && !provider) throw Error('Unknown basemap.');
   const {north, south, east, west} = bounds;
   if (![north, south, east, west].every(Number.isFinite) || north <= south || east <= west ||
       south < -85 || north > 85 || west < -180 || east > 180) throw Error('Invalid basemap bounds.');
   signal?.throwIfAborted();
   const key = [source, north, south, east, west].join(',');
-  if (source!=='detailed' && cache.has(key)) return cache.get(key);
+  if (source!=='google' && cache.has(key)) return cache.get(key);
 
   if(source==='sentinel'){
     try{
@@ -102,9 +107,13 @@ export async function loadBasemap(kind, bounds, {signal, apiKey = ''} = {}) {
 
   const x = (west + 180) / 360, spanX = (east - west) / 360;
   const y = mercatorY(north), spanY = mercatorY(south) - y;
-  const targetPixels=source==='detailed'?2048:MAX_VIEW_PIXELS;
-  const zoom = Math.max(0, Math.min(provider.maxZoom,
-    Math.floor(Math.log2(targetPixels / (TILE_SIZE * Math.max(spanX, spanY))))));
+  const detailed = source === 'google';
+  const targetPixels = detailed ? 2048 : MAX_VIEW_PIXELS;
+  const level = Math.log2(targetPixels / (TILE_SIZE * Math.max(spanX, spanY)));
+  const targetZoom = Math.max(0, detailed ? Math.round(level) : Math.floor(level));
+  if (detailed) provider = await googleSiteProvider(bounds, Math.min(22,targetZoom),
+    signal ? AbortSignal.any([signal, AbortSignal.timeout(12000)]) : AbortSignal.timeout(12000));
+  const zoom = Math.min(provider.maxZoom, targetZoom);
   const scale = TILE_SIZE * 2 ** zoom;
   const pixelWidth = spanX * scale, pixelHeight = spanY * scale;
   const firstX = Math.floor(x * scale / TILE_SIZE), firstY = Math.floor(y * scale / TILE_SIZE);
@@ -125,7 +134,7 @@ export async function loadBasemap(kind, bounds, {signal, apiKey = ''} = {}) {
         const n = next++;
         const col = n % columns, row = Math.floor(n / columns);
         await drawTile(provider, zoom, firstX + col, firstY + row, ctx,
-          col * TILE_SIZE, row * TILE_SIZE, controller.signal, apiKey);
+          col * TILE_SIZE, row * TILE_SIZE, controller.signal);
       }
     }
     await Promise.all(Array.from({length: Math.min(3, count)}, worker));
@@ -141,7 +150,7 @@ export async function loadBasemap(kind, bounds, {signal, apiKey = ''} = {}) {
 
   // Reproject each output row to the same latitude used by the corresponding terrain vertices.
   // The model is square in metres; both geographic edges must reach its edges.
-  const side = Math.max(1, Math.round(Math.max(pixelWidth, pixelHeight)));
+  const side = Math.max(1, Math.min(targetPixels, Math.round(Math.max(pixelWidth, pixelHeight))));
   const result = canvas(side, side);
   const out = result.getContext('2d');
   const sourceX = x * scale - firstX * TILE_SIZE;
@@ -154,7 +163,7 @@ export async function loadBasemap(kind, bounds, {signal, apiKey = ''} = {}) {
   }
   const {name, url, attribution, exportable, exportAttribution} = provider;
   const layer = {canvas: result, name, source, attribution, url, exportable, exportAttribution, bounds: {...bounds}};
-  if(source!=='detailed'){
+  if(source!=='google'){
     if (cache.size >= 6) cache.delete(cache.keys().next().value);
     cache.set(key, layer);
   }

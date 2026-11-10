@@ -2,24 +2,6 @@ const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const palette=[[86,124,113],[141,169,119],[201,194,141],[232,219,175]];
 function tint(t){const x=clamp(t,0,1)*2.999,i=Math.floor(x);return palette[i].map((v,k)=>v+(palette[i+1][k]-v)*(x-i));}
 
-// The texture covers the same north-up square as the DEM. Keeping the photo
-// placement here also gives SketchUp exports and the interactive view identical UVs.
-function makeOverlayTexture(image, extent, {scale=1, rotation=0, east=0, north=0, opacity=1}) {
- const width=image.naturalWidth || image.width, height=image.naturalHeight || image.height;
- if (!(width>0 && height>0)) throw new Error('The image has no readable dimensions.');
- const size=Math.min(2048,Math.max(512,width,height));
- const canvas=document.createElement('canvas');
- canvas.width=canvas.height=size;
- const ctx=canvas.getContext('2d');
- ctx.imageSmoothingQuality='high';
- const fit=size/Math.max(width,height)*scale;
- ctx.translate(size*(.5+east/extent), size*(.5-north/extent));
- ctx.rotate(rotation*Math.PI/180);
- ctx.globalAlpha=clamp(opacity,0,1);
- ctx.drawImage(image,-width*fit/2,-height*fit/2,width*fit,height*fit);
- return canvas;
-}
-
 // Orthographic projection makes the source-to-screen mapping affine on each
 // DEM triangle. Fill with a transformed pattern, which reuses the same texture
 // in the browser without copying image pixels to JavaScript on each frame.
@@ -57,58 +39,19 @@ export class Viewer{
  }
  fit(notify=true){this.yaw=-.55;this.tilt=.64;this.zoom=1;this.dx=0;this.dy=0;this.probed=null;if(notify)this.drawSoon();}
  setModel(t){this.clearOverlay();this.model=t;this.geometry=t.parcel || modelGeometry(t);this.fit();this.prepare();}
- setOverlay(image, options={}) {
-  if (!this.model) throw new Error('Generate terrain before adding an image.');
-  const texture=makeOverlayTexture(image,this.model.extent,options);
+ setOverlay(texture) {
+  if (!this.model) throw new Error('Generate terrain before adding imagery.');
   this.overlay={texture,matrix:new DOMMatrix()};
   this.prepareOverlayUVs();
   this.drawSoon();
  }
- clearOverlay(){this.overlay=null;if(this.mesh)this.mesh.textureBase=null;this.drawSoon();}
+ clearOverlay(){this.overlay=null;this.drawSoon();}
  prepareOverlayUVs(){
   if (!this.overlay || !this.mesh) return;
   const {texture}=this.overlay, size=texture.width, extent=this.model.extent;
-  let base=this.mesh.textureBase;
-  if (!base || base.canvas.width!==size) {
-   const canvas=document.createElement('canvas');
-   canvas.width=canvas.height=size;
-   const ctx=canvas.getContext('2d');
-   const uv=this.mesh.verts.map(([x,y])=>[(.5+x/extent)*size,(.5-y/extent)*size]);
-   ctx.fillStyle='#a0b692';ctx.fillRect(0,0,size,size);
-   ctx.lineJoin='round';ctx.lineWidth=1;
-   for (const [a,b,c,color] of this.mesh.triangles) {
-    ctx.beginPath();ctx.moveTo(...uv[a]);ctx.lineTo(...uv[b]);ctx.lineTo(...uv[c]);ctx.closePath();
-    ctx.fillStyle=ctx.strokeStyle=color;ctx.fill();ctx.stroke();
-   }
-   base=this.mesh.textureBase={canvas,uv};
-  }
-  const surface=document.createElement('canvas');
-  surface.width=surface.height=size;
-  const ctx=surface.getContext('2d');
-  ctx.drawImage(base.canvas,0,0);
-  ctx.drawImage(texture,0,0);
-  this.overlay.surface=surface;
-  this.overlay.uv=base.uv;
-  this.overlay.pattern=this.ctx.createPattern(surface,'no-repeat');
- }
- getOverlayCanvas(){
-  if (!this.overlay) return null;
-  const canvas=document.createElement('canvas'), texture=this.overlay.texture;
-  canvas.width=canvas.height=texture.width;
-  const ctx=canvas.getContext('2d');
-  ctx.fillStyle='#a0b692';
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-  if(this.model.parcelBoundary){
-   const size=canvas.width,extent=this.model.extent;
-   ctx.beginPath();
-   this.model.parcelBoundary.forEach(([x,y],i)=>{
-    const u=(.5+x/extent)*size,v=(.5-y/extent)*size;
-    if(i===0)ctx.moveTo(u,v);else ctx.lineTo(u,v);
-   });
-   ctx.closePath();ctx.clip();
-  }
-  ctx.drawImage(texture,0,0);
-  return canvas;
+  this.overlay.uv=this.mesh.verts.map(([x,y])=>[(.5+x/extent)*size,(.5-y/extent)*size]);
+  this.overlay.surface=texture;
+  this.overlay.pattern=this.ctx.createPattern(texture,'no-repeat');
  }
  prepare(){
   if(!this.model)return;const t=this.model, {rows,cols,extent,heights,min,max}=t;
